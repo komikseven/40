@@ -26,6 +26,16 @@ type Props =
 export function ComikDetail(props: Props) {
   const router = useRouter()
 
+  // Intercept device back button → arahkan ke home
+  useEffect(() => {
+    window.history.pushState({ komikDetail: true }, "")
+    const handlePopState = () => {
+      router.replace("/")
+    }
+    window.addEventListener("popstate", handlePopState)
+    return () => window.removeEventListener("popstate", handlePopState)
+  }, [router])
+
   const { data: chapter } = useSWR(
     props.chapterId ? ["chapter", props.chapterId] : null,
     () => getChapter(props.chapterId!),
@@ -54,7 +64,7 @@ export function ComikDetail(props: Props) {
 
   const { data: chapters, isLoading: chaptersLoading } = useSWR(
     seriesId ? ["chapters", seriesId] : null,
-    () => getChaptersByCategory(seriesId, 100),
+    () => getChaptersByCategory(seriesId),
     { revalidateOnFocus: false },
   )
 
@@ -82,7 +92,7 @@ export function ComikDetail(props: Props) {
       <div className="fixed top-0 inset-x-0 z-40 pointer-events-none">
         <div className="pointer-events-auto inline-flex p-3">
           <button
-            onClick={() => router.back()}
+            onClick={() => router.replace("/")}
             className="flex items-center justify-center h-8 w-8 rounded-full bg-black/50 text-white backdrop-blur-sm"
             aria-label="Kembali"
           >

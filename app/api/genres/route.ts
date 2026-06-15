@@ -13,41 +13,42 @@ interface Genre {
   count: number
 }
 
-/**
- * Scrape genre dari halaman /genres/ komik7.my.id
- * Genre ada di sana sebagai list link: /genres/[slug]/
- * Ini JAUH lebih akurat daripada /wp/v2/tags yang isinya judul komik
- */
-async function scrapeGenres(): Promise<Genre[]> {
-  const res = await fetch(`${SITE_BASE}/genres/`, {
+async function fetchGenres(): Promise<Genre[]> {
+  // Gunakan endpoint custom komik7 — tersedia di /wp-json/komik7/v1/genres
+  const res = await fetch(`${SITE_BASE}/wp-json/komik7/v1/genres`, {
     headers: { "User-Agent": "Mozilla/5.0" },
     next: { revalidate: 3600 },
   })
-  if (!res.ok) return []
-  const html = await res.text()
 
-  // Pola: <a href="/genres/action/">Action <em>259</em></a>
-  // atau:  Action *259*  (dari markdown parser)
-  const matches = [
-    ...html.matchAll(/href="https?:\/\/komik7\.my\.id\/genres\/([^/]+)\/"[^>]*>\s*([^<(]+?)(?:\s*<em[^>]*>(\d+)<\/em>|)\s*</gi),
-  ]
-
-  const genres: Genre[] = []
-  let id = 1
-  for (const m of matches) {
-    const slug = m[1].trim()
-    const name = m[2].trim()
-    const count = m[3] ? parseInt(m[3]) : 0
-    if (!slug || !name || slug === "genres") continue
-    // Skip genre noise dengan count sangat kecil (opsional)
-    genres.push({ id: id++, name, slug, count })
+  if (res.ok) {
+    const data = await res.json()
+    if (Array.isArray(data) && data.length > 0) {
+      return data.map((g: Genre, i: number) => ({
+        id: g.id ?? i + 1,
+        name: g.name,
+        slug: g.slug,
+        count: g.count ?? 0,
+      }))
+    }
   }
-  return genres
+
+  // Fallback: WP Categories API
+  const res2 = await fetch(
+    `${SITE_BASE}/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count&orderby=name&order=asc&hide_empty=true`,
+    { headers: { "User-Agent": "Mozilla/5.0" }, next: { revalidate: 3600 } }
+  )
+  if (!res2.ok) return []
+
+  const cats = await res2.json() as Genre[]
+  const SKIP = new Set(["uncategorized", "manga", "manhwa", "manhua"])
+  return cats
+    .filter(c => c.count > 0 && !SKIP.has(c.slug) && c.name.split(" ").length <= 4 && c.slug.length <= 30)
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export async function GET() {
   try {
-    const genres = await cached("komiku:genres:v2", TTL.genres, scrapeGenres)
+    const genres = await cached("komiku:genres:v7", TTL.genres, fetchGenres)
     return NextResponse.json(genres)
   } catch {
     return NextResponse.json([], { status: 200 })
